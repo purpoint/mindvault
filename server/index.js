@@ -6,6 +6,12 @@ const connectDB = require('./config/db')
 dotenv.config()
 
 const app = express()
+app.set('trust proxy', 1)
+
+const fs = require('fs')
+if (!fs.existsSync('uploads')) {
+  fs.mkdirSync('uploads')
+}
 
 const rateLimit = require('express-rate-limit')
 
