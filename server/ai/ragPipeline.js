@@ -73,20 +73,39 @@ const matches = await querySimilar(queryEmbedding, 5, filter)
       }
     }
 
-    console.log(`✅ Found ${matches.length} relevant chunks`)
+    console.log('Match scores:', matches.map(m => ({ file: m.metadata.filename, score: Number(m.score.toFixed(3)) })))
 
-    // Step 3: Build context from matches
-    const contextChunks = matches
+    // Step 3: Keep only chunks that actually answer the question.
+    //
+    // topK always returns 5 rows, so an unrelated document comes back on every
+    // query and would otherwise be pasted into the prompt and cited as a source.
+    // An absolute cut-off alone is unreliable: a long chunk dilutes its own
+    // embedding, so a genuinely relevant match can score as low as ~0.28. The
+    // gate is therefore relative to the best match, with a floor to catch the
+    // case where nothing in the corpus is relevant at all.
+    const RELEVANCE_FLOOR = 0.15
+    const RELATIVE_CUTOFF = 0.6
+
+    const topScore = matches[0].score
+    const relevant = topScore < RELEVANCE_FLOOR
+      ? []
+      : matches.filter(m => m.score >= Math.max(RELEVANCE_FLOOR, topScore * RELATIVE_CUTOFF))
+
+    if (relevant.length === 0) {
+      console.log(`🚫 Best match scored ${topScore.toFixed(3)} — below relevance floor, not answering`)
+      return {
+        answer: "I couldn't find this in your uploaded documents.",
+        sources: []
+      }
+    }
+
+    console.log(`✅ Using ${relevant.length} of ${matches.length} chunks (top score ${topScore.toFixed(3)})`)
+
+    const contextChunks = relevant
       .map((m, i) => `[Source ${i + 1} - ${m.metadata.filename}]\n${m.metadata.text}`)
       .join('\n\n---\n\n')
 
-      console.log('Match scores:', matches.map(m => ({ file: m.metadata.filename, score: m.score })))
-    // Only show sources with high relevance score (above 0.4)
-const sources = [...new Set(
-  matches
-    .filter(m => m.score > 0.10)
-    .map(m => m.metadata.filename)
-)]
+    const sources = [...new Set(relevant.map(m => m.metadata.filename))]
 
     // Step 4: Build RAG prompt
     const prompt = buildRAGPrompt(userQuestion, contextChunks)
