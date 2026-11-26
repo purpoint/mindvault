@@ -18,7 +18,10 @@ async function processDocument(documentId) {
     const { text, pages } = await extractTextFromPDF(filePath)
 
     if (!text || text.length < 50) {
-      await Document.findByIdAndUpdate(documentId, { status: 'failed' })
+      await Document.findByIdAndUpdate(documentId, {
+        status: 'failed',
+        failureReason: 'No readable text found in this PDF (it may be a scan or an image-only file).'
+      })
       throw new Error('Could not extract text from PDF')
     }
 
@@ -29,6 +32,7 @@ async function processDocument(documentId) {
 
     console.log(`🔢 Generating embeddings for ${chunks.length} chunks...`)
     const vectors = []
+    let firstEmbedError = ''
 
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i]
@@ -57,6 +61,7 @@ async function processDocument(documentId) {
         if (i < chunks.length - 1) await wait(500)
 
       } catch (err) {
+        if (!firstEmbedError) firstEmbedError = err.message
         console.error(`  ❌ Chunk ${i + 1} failed: ${err.message}`)
       }
     }
@@ -73,13 +78,19 @@ async function processDocument(documentId) {
     await Document.findByIdAndUpdate(documentId, {
       status: vectors.length > 0 ? 'completed' : 'failed',
       chunkCount: vectors.length,
+      failureReason: vectors.length > 0
+        ? ''
+        : (firstEmbedError || 'Embedding step produced no vectors.')
     })
 
     console.log(`✅ Processing complete: ${vectors.length} vectors stored`)
     return { documentId, totalChunks: vectors.length, pages }
 
   } catch (error) {
-    await Document.findByIdAndUpdate(documentId, { status: 'failed' })
+    await Document.findByIdAndUpdate(documentId, {
+      status: 'failed',
+      failureReason: error.message
+    })
     throw error
   }
 }

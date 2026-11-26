@@ -262,6 +262,13 @@ export default function Upload() {
                         <span className="text-zinc-500 text-xs">{formatDate(doc.createdAt)}</span>
                       </div>
 
+                      {/* Why it failed, when it did */}
+                      {doc.status === 'failed' && doc.failureReason && (
+                        <p className="text-red-400/80 text-xs mt-1.5 leading-relaxed">
+                          {doc.failureReason}
+                        </p>
+                      )}
+
                       {/* Processing progress bar */}
                       {doc.status === 'processing' && (
                         <div className="mt-2 w-full bg-zinc-800 rounded-full h-1">

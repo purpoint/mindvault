@@ -31,6 +31,10 @@ const documentSchema = new mongoose.Schema({
     type: String,
     default: '',
   },
+  failureReason: {
+    type: String,
+    default: '',
+  },
 }, { timestamps: true })
 
 module.exports = mongoose.model('Document', documentSchema)
