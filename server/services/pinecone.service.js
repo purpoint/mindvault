@@ -40,9 +40,24 @@ async function querySimilar(queryVector, topK = 5, filter = {}) {
   return result.matches
 }
 
-async function deleteVectorsByDocument(documentId) {
+async function deleteVectorsByDocument(documentId, chunkCount) {
+  if (!chunkCount || chunkCount < 1) return
+
   const idx = getIndex()
-  await idx.deleteMany({ documentId })
+
+  // Serverless indexes don't support delete-by-metadata-filter,
+  // so we rebuild the deterministic IDs we used at upsert time.
+  const ids = Array.from(
+    { length: chunkCount },
+    (_, i) => `${documentId}-chunk-${i}`
+  )
+
+  // Pinecone accepts max 1000 ids per delete call
+  for (let i = 0; i < ids.length; i += 1000) {
+    await idx.deleteMany(ids.slice(i, i + 1000))
+  }
+
+  console.log(`🗑️  Deleted ${ids.length} vectors for document ${documentId}`)
 }
 
 module.exports = { upsertVectors, querySimilar, deleteVectorsByDocument }

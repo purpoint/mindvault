@@ -160,6 +160,7 @@ export default function Chat() {
   const [documents, setDocuments] = useState([])
   const [selectedDoc, setSelectedDoc] = useState(null)
   const [docsLoading, setDocsLoading] = useState(true)
+  const [pendingCount, setPendingCount] = useState(0)
 
   useEffect(() => {
     if (!loading && !user) navigate('/login')
@@ -179,11 +180,21 @@ export default function Chat() {
   const fetchDocuments = async () => {
     try {
       const res = await api.get('/api/upload')
-      const completed = res.data.documents.filter(d => d.status === 'completed')
-      setDocuments(completed)
+      const all = res.data.documents
+      setDocuments(all.filter(d => d.status === 'completed'))
+      setPendingCount(
+        all.filter(d => d.status === 'processing' || d.status === 'uploaded').length
+      )
     } catch {}
     finally { setDocsLoading(false) }
   }
+
+  // Keep the sidebar in sync while documents are still being processed
+  useEffect(() => {
+    if (pendingCount === 0) return
+    const interval = setInterval(fetchDocuments, 3000)
+    return () => clearInterval(interval)
+  }, [pendingCount])
 
   const showToast = (msg) => {
     setToast(msg)

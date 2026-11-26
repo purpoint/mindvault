@@ -1,33 +1,39 @@
-async function generateEmbedding(text) {
-  const response = await fetch(
-    'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction',
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.HF_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        inputs: text,
-        options: { wait_for_model: true }
-      })
-    }
-  )
+// Local embedding generation using Transformers.js.
+// Runs sentence-transformers/all-MiniLM-L6-v2 in-process: no API key,
+// no rate limits, no credits. Output is 384-dimensional, mean-pooled and
+// L2-normalised — identical in shape and semantics to the hosted
+// sentence-transformers endpoint this previously called, so vectors already
+// stored in Pinecone remain compatible.
 
-  if (!response.ok) {
-    const err = await response.text()
-    throw new Error(`Embedding failed: ${err}`)
+let extractorPromise = null
+
+async function getExtractor() {
+  if (!extractorPromise) {
+    extractorPromise = (async () => {
+      const { pipeline, env } = await import('@xenova/transformers')
+      // Only fetch from the hub; don't look for local model folders.
+      env.allowLocalModels = false
+      console.log('🧠 Loading local embedding model (first run downloads ~25MB)...')
+      const pipe = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2')
+      console.log('✅ Embedding model ready')
+      return pipe
+    })().catch(err => {
+      extractorPromise = null // allow a later retry instead of caching the failure
+      throw err
+    })
   }
-
-  const data = await response.json()
-
-  // Debug: check what shape we're getting
-  console.log('Embedding shape:', Array.isArray(data), Array.isArray(data[0]), typeof data[0])
-
-  if (Array.isArray(data) && typeof data[0] === 'number') return data
-  if (Array.isArray(data[0]) && Array.isArray(data[0][0])) return data[0][0]
-  if (Array.isArray(data[0])) return data[0]
-  return data
+  return extractorPromise
 }
 
-module.exports = { generateEmbedding }
+async function generateEmbedding(text) {
+  const extractor = await getExtractor()
+  const output = await extractor(text, { pooling: 'mean', normalize: true })
+  const vector = Array.from(output.data)
+
+  if (!Array.isArray(vector) || vector.length === 0) {
+    throw new Error('Embedding failed: empty vector returned')
+  }
+  return vector
+}
+
+module.exports = { generateEmbedding, getExtractor }

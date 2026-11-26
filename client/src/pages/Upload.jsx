@@ -29,6 +29,18 @@ export default function Upload() {
     } catch {}
   }
 
+  // Auto-refresh while any document is still being processed,
+  // then stop so we aren't polling an idle page forever.
+  useEffect(() => {
+    const stillWorking = documents.some(
+      d => d.status === 'processing' || d.status === 'uploaded'
+    )
+    if (!stillWorking) return
+
+    const interval = setInterval(fetchDocuments, 3000)
+    return () => clearInterval(interval)
+  }, [documents])
+
   const handleFile = async (file) => {
     if (!file) return
     if (file.type !== 'application/pdf') { setError('Only PDF files are allowed'); return }

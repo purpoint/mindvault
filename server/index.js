@@ -61,4 +61,11 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`)
+
+  // Warm the local embedding model in the background so the first user
+  // request doesn't pay the load cost. Failure here is non-fatal: the
+  // model is retried lazily on the next request that needs it.
+  require('./services/embeddings.service')
+    .getExtractor()
+    .catch(err => console.error('⚠️  Embedding model warm-up failed:', err.message))
 })

@@ -1,3 +1,5 @@
+const { deleteVectorsByDocument } = require('../services/pinecone.service')
+
 const Document = require('../models/Document.model')
 const { processDocument } = require('../services/processor.service')
 const fs = require('fs')
@@ -58,6 +60,14 @@ exports.deleteDocument = async (req, res) => {
 
     if (!document) {
       return res.status(404).json({ message: 'Document not found' })
+    }
+
+    // Remove vectors from Pinecone first
+    try {
+      await deleteVectorsByDocument(document._id.toString(), document.chunkCount)
+    } catch (err) {
+      // Don't block the delete if Pinecone is unreachable — log and continue
+      console.error(`⚠️  Pinecone cleanup failed: ${err.message}`)
     }
 
     // Delete file from disk
