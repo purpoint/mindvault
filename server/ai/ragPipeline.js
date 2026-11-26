@@ -5,6 +5,56 @@ const Groq = require('groq-sdk')
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
 
+// Groq retires models on a rolling schedule (llama3-8b-8192 and then
+// llama-3.1-8b-instant were both shut down under us). Rather than pin a single
+// id that will eventually 404, try a preference list and remember whichever
+// one answers. GROQ_MODEL in the environment overrides the list entirely.
+const MODEL_CANDIDATES = [
+  process.env.GROQ_MODEL,
+  'openai/gpt-oss-20b',
+  'openai/gpt-oss-120b',
+  'qwen/qwen3.8-27b',
+  'llama-3.3-70b-versatile',
+].filter(Boolean)
+
+let activeModel = null
+
+function isModelMissing(err) {
+  const msg = `${err && err.message ? err.message : ''}`
+  return err?.status === 404 || /model_not_found|does not exist|decommission/i.test(msg)
+}
+
+async function completeWithFallback(prompt) {
+  const ordered = activeModel
+    ? [activeModel, ...MODEL_CANDIDATES.filter(m => m !== activeModel)]
+    : MODEL_CANDIDATES
+
+  let lastError
+  for (const model of ordered) {
+    try {
+      const completion = await groq.chat.completions.create({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        max_tokens: 1024,
+      })
+      if (activeModel !== model) {
+        activeModel = model
+        console.log(`🤖 Using Groq model: ${model}`)
+      }
+      return completion.choices[0].message.content
+    } catch (err) {
+      lastError = err
+      // Only walk the list for "this model is gone"; a rate limit or a bad key
+      // should surface immediately instead of burning through every candidate.
+      if (!isModelMissing(err)) throw err
+      console.warn(`⚠️  Groq model ${model} unavailable, trying next...`)
+      if (activeModel === model) activeModel = null
+    }
+  }
+  throw lastError
+}
+
 async function runRAG(userQuestion, userId, documentId = null) {
   try {
     // Step 1: Convert question to embedding
@@ -43,14 +93,7 @@ const sources = [...new Set(
 
     // Step 5: Call Groq LLM
     console.log('🤖 Generating answer with Groq...')
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3,
-      max_tokens: 1024,
-    })
-
-    const answer = completion.choices[0].message.content
+    const answer = await completeWithFallback(prompt)
 
     console.log('✅ Answer generated successfully')
 
